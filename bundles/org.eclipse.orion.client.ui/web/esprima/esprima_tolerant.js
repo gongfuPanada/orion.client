@@ -1434,6 +1434,9 @@ parseStatement: true, parseSourceElement: true */
         },
 
         markEndIf: function (node) {
+            // mamacdon: in tolerant mode, node passed to the delegate may be null
+            if (!node)
+                return node;
             if (node.range || node.loc) {
                 if (extra.loc) {
                     state.markerStack.pop();
@@ -1835,6 +1838,8 @@ parseStatement: true, parseSourceElement: true */
         throw error;
     }
 
+    // mamacdon
+    // If tolerant mode is on, records the error and returns undefined. If tolerant mode is off, throws.
     function throwErrorTolerant() {
         try {
             throwError.apply(null, arguments);
@@ -1847,38 +1852,46 @@ parseStatement: true, parseSourceElement: true */
         }
     }
 
-
     // Throw an exception because of the token.
+    // mamacdon: passing `recover` flag when parser is in tolerant mode causes this function to never throw, but instead return null.
+    function throwUnexpected(token, recover) {
+    	var throwErrorFunc = recover ? throwErrorTolerant : throwError;
 
-    function throwUnexpected(token) {
         if (token.type === Token.EOF) {
-            throwError(token, Messages.UnexpectedEOS);
+            throwErrorFunc(token, Messages.UnexpectedEOS);
+            return null;
         }
 
         if (token.type === Token.NumericLiteral) {
-            throwError(token, Messages.UnexpectedNumber);
+            throwErrorFunc(token, Messages.UnexpectedNumber);
+            return null;
         }
 
         if (token.type === Token.StringLiteral) {
-            throwError(token, Messages.UnexpectedString);
+            throwErrorFunc(token, Messages.UnexpectedString);
+            return null;
         }
 
         if (token.type === Token.Identifier) {
-            throwError(token, Messages.UnexpectedIdentifier);
+            throwErrorFunc(token, Messages.UnexpectedIdentifier);
+            return null;
         }
 
         if (token.type === Token.Keyword) {
             if (isFutureReservedWord(token.value)) {
-                throwError(token, Messages.UnexpectedReserved);
+                throwErrorFunc(token, Messages.UnexpectedReserved);
+                return null;
             } else if (strict && isStrictModeReservedWord(token.value)) {
-                throwErrorTolerant(token, Messages.StrictReservedWord);
-                return;
+                throwErrorFunc(token, Messages.StrictReservedWord);
+                return null;
             }
-            throwError(token, Messages.UnexpectedToken, token.value);
+            throwErrorFunc(token, Messages.UnexpectedToken, token.value);
+            return null;
         }
 
         // BooleanLiteral, NullLiteral, or Punctuator.
-        throwError(token, Messages.UnexpectedToken, token.value);
+        throwErrorFunc(token, Messages.UnexpectedToken, token.value);
+        return null;
     }
 
     // Expect the next token to match the specified punctuator.
@@ -1892,7 +1905,7 @@ parseStatement: true, parseSourceElement: true */
     }
 
     // Expect the next token to match the specified keyword.
-    // If not, an exception will be thrown.
+    // If not, an exception will be thrown (in non-tolerant mode) or null returned (tolerant mode).
 
     function expectKeyword(keyword) {
         var token = lex();
@@ -2193,7 +2206,7 @@ parseStatement: true, parseSourceElement: true */
             return delegate.markEnd(expr);
         }
 
-        throwUnexpected(lex());
+        return throwUnexpected(lex(), true /*recover*/);
     }
 
     // 11.2 Left-Hand-Side Expressions
@@ -2248,7 +2261,8 @@ parseStatement: true, parseSourceElement: true */
         	if (extra.errors) {
                 attemptRecoveryNonComputedProperty(token);
             }
-            throwUnexpected(token);
+            throwUnexpected(token, true /*recover*/);
+            return null;
         }
 
         return delegate.markEnd(delegate.createIdentifier(token.value));
@@ -3290,8 +3304,7 @@ parseStatement: true, parseSourceElement: true */
         expr = parseExpression();
 
         // 12.12 Labelled Statements
-        // mamacdon 1420b19
-        if (expr && (expr.type === Syntax.Identifier) && match(':')) {
+        if (expr && (expr.type === Syntax.Identifier) && match(':')) { // mamacdon 1420b19
             lex();
 
             key = '$' + expr.name;

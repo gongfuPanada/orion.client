@@ -1838,8 +1838,7 @@ parseStatement: true, parseSourceElement: true */
         throw error;
     }
 
-    // mamacdon
-    // If tolerant mode is on, records the error and returns undefined. If tolerant mode is off, throws.
+    // mamacdon: in tolerant mode, records the error and returns undefined. If non tolerant, throws.
     function throwErrorTolerant() {
         try {
             throwError.apply(null, arguments);
@@ -2792,8 +2791,8 @@ parseStatement: true, parseSourceElement: true */
         expectConditionCloseParenWrapThrow();
 
         consequent = parseStatement();
-        // mamacdon 853a9865
-		// required because of the check in wrapTracking that returns nothing if node is undefined
+        // mamacdon 853a9865: required because of the check in wrapTracking that returns nothing if node is undefined
+		// TODO: delegate handles tracking now, check if this test is still needed
         if (!consequent) {
             consequent = null;
         }
@@ -3832,6 +3831,18 @@ parseStatement: true, parseSourceElement: true */
             }
             if (typeof options.tolerant === 'boolean' && options.tolerant) {
                 extra.errors = [];
+
+				// mamacdon patch
+				extra.parseStatement = parseStatement;
+				extra.parseExpression = parseExpression;
+				extra.parseNonComputedProperty = parseNonComputedProperty;
+				extra.consumeSemicolon = consumeSemicolon;
+
+				parseStatement = wrapThrowParseStatement(parseStatement);       // Note special case
+				parseExpression = wrapThrow(parseExpression);
+				// this enables 'foo.<EOF>' to return something
+				parseNonComputedProperty = wrapThrow(parseNonComputedProperty);
+				consumeSemicolon = wrapThrow(consumeSemicolon);
             }
             if (extra.attachComment) {
                 extra.range = true;
@@ -3869,6 +3880,12 @@ parseStatement: true, parseSourceElement: true */
         } catch (e) {
             throw e;
         } finally {
+			// mamacdon unpatch
+			parseStatement = extra.parseStatement;
+			parseExpression = extra.parseExpression;
+			parseNonComputedProperty = extra.parseNonComputedProperty;
+			consumeSemicolon = extra.consumeSemicolon;
+
             extra = {};
         }
 
@@ -3928,7 +3945,6 @@ parseStatement: true, parseSourceElement: true */
                 throw e;
             }
         }
-
 	}
     // mamacdon 1420b19
     // @ 1.0.0 esprima.js:1609
@@ -3952,7 +3968,29 @@ parseStatement: true, parseSourceElement: true */
     }
     
     //Recovery
+    function wrapThrow(parseFunction) {
+        return function () {
+            try {
+                return parseFunction.apply(null, arguments);
+            } catch (e) {
+				pushError(e);
+				return null;
+            }
+        };
+    }
     
+    function wrapThrowParseStatement(parseFunction) {
+        return function () {
+            extra.statementStart = index; // record where attempting to parse statement from
+            try {
+                return parseFunction.apply(null, arguments);
+            } catch (e) {
+				pushError(e);
+//				return null;   // why is this commented out
+            }
+        };
+    }
+
     /**
      * @name isNewlineOrSemicolon
      * @description If the given char is the new line char or a semicolon char
